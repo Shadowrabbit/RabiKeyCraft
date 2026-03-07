@@ -1,0 +1,186 @@
+<!doctype html>
+<!--
+ ******************************************************************
+       /\ /|       @file       index.html
+       \ V/        @brief      KeyCraft Studio 首页（Vue 版）
+       | "")       @author     Catarina·RabbitNya, yingtu0401@gmail.com
+       /  |
+      /  \\        @Modified   2026-03-07 14:17:16
+    *(__\_\        @Copyright  Copyright (c) 2026, Shadowrabbit
+ ******************************************************************
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KeyCraft Studio - 设计属于你的键帽</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="nav">
+        <div class="container nav-inner">
+          <a class="logo" href="#">
+            <span class="logo-icon">K</span>
+            <span>KeyCraft Studio</span>
+          </a>
+
+          <nav class="nav-links">
+            <a href="./browse.html">浏览设计</a>
+            <a href="./templates.html">模板库</a>
+            <a href="./custom-guide.html">定制说明</a>
+            <a href="./login.html">登录</a>
+          </nav>
+
+          <a class="btn btn-sm btn-primary" href="./editor.html">开始设计</a>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div class="container hero-grid">
+            <div>
+              <h1>
+                设计属于你的
+                <span class="hero-gradient">键帽</span>
+              </h1>
+              <p class="subtitle">
+                专业 3D 键帽设计器，在浏览器中完成从创意到生产的全链路。
+              </p>
+
+              <div class="hero-tags">
+                <span class="tag">在线设计</span>
+                <span class="tag">一键下单</span>
+                <span class="tag">工厂直发</span>
+              </div>
+
+              <div class="hero-actions">
+                <a class="btn btn-primary btn-lg" href="./editor.html">开始设计</a>
+                <p class="hint">无需注册，直接进入设计器</p>
+              </div>
+            </div>
+
+            <div
+              class="hero-visual"
+              @mousemove="onHeroMove"
+              @mouseleave="onHeroLeave"
+              :style="heroVisualStyle"
+            >
+              <!-- 用纯 CSS 模拟可交互键帽展示 -->
+              <div class="keycap-card">
+                <div class="keycap-top">ESC</div>
+                <div class="keycap-front"></div>
+                <div class="keycap-side"></div>
+              </div>
+              <p class="visual-note">可拖动旋转预览（示意）</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section section-dark">
+          <div class="container">
+            <p class="section-label">如何使用</p>
+            <h2>三步完成键帽定制</h2>
+            <p class="section-desc">未登录可设计，保存图纸和下单需要登录。</p>
+
+            <div class="steps">
+              <article class="step" v-for="step in steps" :key="step.title">
+                <div class="step-no">{{ step.no }}</div>
+                <h3>{{ step.title }}</h3>
+                <p>{{ step.desc }}</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="container">
+            <p class="section-label">社区精选</p>
+            <h2>热门设计预览</h2>
+            <p class="section-desc">点击卡片看详情，或直接“基于此设计”开始编辑。</p>
+
+            <div class="design-grid">
+              <article class="design-card" v-for="item in designs" :key="item.name">
+                <button class="design-click" @click="viewDesign(item.name)" aria-label="查看设计详情"></button>
+
+                <div class="design-thumb">
+                  <div class="key-preview" :style="{ background: item.base, color: item.legend }">
+                    {{ item.char }}
+                  </div>
+                  <button class="btn btn-sm design-clone" @click.stop="cloneDesign(item.name)">
+                    基于此设计
+                  </button>
+                </div>
+
+                <div class="design-body">
+                  <h3>{{ item.name }}</h3>
+                  <p>@{{ item.author }}</p>
+                  <div class="meta">
+                    <span>❤ {{ item.likes }}</span>
+                    <span>↻ {{ item.uses }}</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section section-dark">
+          <div class="container">
+            <p class="section-label">快速开始</p>
+            <h2>官方模板库预览</h2>
+            <p class="section-desc">选择模板可直接进入设计器，自动加载模板配色和字符。</p>
+
+            <div class="template-list">
+              <article class="template-card" v-for="item in templates" :key="item.name" @click="applyTemplate(item.name)">
+                <div class="template-thumb" :style="{ background: item.bg }">{{ item.char }}</div>
+                <div class="template-body">
+                  <h3>{{ item.name }}</h3>
+                  <span class="badge">{{ item.tag }}</span>
+                </div>
+              </article>
+            </div>
+
+            <div class="more-link">
+              <a href="./templates.html">查看全部模板 →</a>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="container">
+            <p class="section-label">所见即所得</p>
+            <h2>实物效果展示</h2>
+            <p class="section-desc">
+              固定工艺为五面热升华 PBT，设计器效果与实物一致，帮助用户建立下单信心。
+            </p>
+
+            <div class="showcase-grid">
+              <article class="showcase-card" v-for="item in showcase" :key="item.title">
+                <div class="showcase-main">{{ item.title }}</div>
+                <p>{{ item.desc }}</p>
+                <span class="badge">{{ item.tag }}</span>
+              </article>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="container footer-inner">
+          <p>© 2026 KeyCraft Studio</p>
+          <nav class="footer-links">
+            <a href="./custom-guide.html">定制说明</a>
+            <a href="./faq.html">常见问题</a>
+            <a href="./contact.html">联系我们</a>
+            <a href="./terms.html">服务条款</a>
+            <a href="./privacy.html">隐私政策</a>
+          </nav>
+        </div>
+      </footer>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="./main.js"></script>
+  </body>
+</html>
