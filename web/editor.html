@@ -5,7 +5,7 @@
        \ V/        @brief      KeyCraft Studio 键帽 3D 编辑器
        | "")       @author     Catarina·RabbitNya, yingtu0401@gmail.com
        /  |
-      /  \\        @Modified   2026-03-09 04:45:00
+      /  \\        @Modified   2026-03-08 22:30:00
     *(__\_\        @Copyright  Copyright (c) 2026, Shadowrabbit
  ******************************************************************
 -->
@@ -73,7 +73,58 @@
     <div class="editor-body">
 
       <!-- 左面板 -->
-      <div class="left-panel">
+      <div class="left-panel" :class="{ 'kd-left-mode': showDesigner }">
+
+        <!-- ===== 设计模式工具栏 ===== -->
+        <template v-if="showDesigner">
+          <div class="kd-tg">
+            <div class="kd-tg-title">绘图工具</div>
+            <div class="kd-tg-grid">
+              <button v-for="t in kdTools" :key="t.id" class="kd-tool-btn"
+                :class="{ active: dTool === t.id }" @click="setDTool(t.id)"
+                :title="t.tip">
+                <span class="kd-tool-icon">{{ t.icon }}</span>
+                <span class="kd-tool-label">{{ t.name }}</span>
+              </button>
+            </div>
+          </div>
+          <div class="kd-tg">
+            <div class="kd-tg-title">对齐</div>
+            <div class="kd-tg-grid">
+              <button class="kd-tool-btn" @click="designer?.alignSel('left')" title="左对齐"><span class="kd-tool-icon">⫷</span><span class="kd-tool-label">左</span></button>
+              <button class="kd-tool-btn" @click="designer?.alignSel('centerH')" title="水平居中"><span class="kd-tool-icon">⫿</span><span class="kd-tool-label">水平</span></button>
+              <button class="kd-tool-btn" @click="designer?.alignSel('right')" title="右对齐"><span class="kd-tool-icon">⫸</span><span class="kd-tool-label">右</span></button>
+              <button class="kd-tool-btn" @click="designer?.alignSel('top')" title="顶对齐"><span class="kd-tool-icon">⫠</span><span class="kd-tool-label">顶</span></button>
+              <button class="kd-tool-btn" @click="designer?.alignSel('centerV')" title="垂直居中"><span class="kd-tool-icon">⫟</span><span class="kd-tool-label">垂直</span></button>
+              <button class="kd-tool-btn" @click="designer?.alignSel('bottom')" title="底对齐"><span class="kd-tool-icon">⫡</span><span class="kd-tool-label">底</span></button>
+            </div>
+          </div>
+          <div class="kd-tg">
+            <div class="kd-tg-title">分布</div>
+            <div class="kd-tg-grid">
+              <button class="kd-tool-btn" @click="designer?.distributeSel('horizontal')" title="水平等距"><span class="kd-tool-icon">⫦</span><span class="kd-tool-label">水平</span></button>
+              <button class="kd-tool-btn" @click="designer?.distributeSel('vertical')" title="垂直等距"><span class="kd-tool-icon">⫧</span><span class="kd-tool-label">垂直</span></button>
+            </div>
+          </div>
+          <div class="kd-tg">
+            <div class="kd-tg-title">布尔运算</div>
+            <div class="kd-tg-grid">
+              <button class="kd-tool-btn" @click="designer?.booleanOp('unite')" title="并集"><span class="kd-tool-icon">∪</span><span class="kd-tool-label">并集</span></button>
+              <button class="kd-tool-btn" @click="designer?.booleanOp('subtract')" title="减去"><span class="kd-tool-icon">∖</span><span class="kd-tool-label">减去</span></button>
+              <button class="kd-tool-btn" @click="designer?.booleanOp('intersect')" title="交集"><span class="kd-tool-icon">∩</span><span class="kd-tool-label">交集</span></button>
+            </div>
+          </div>
+          <div class="kd-tg">
+            <div class="kd-tg-title">编组</div>
+            <div class="kd-tg-grid">
+              <button class="kd-tool-btn" @click="designer?.groupSel()" title="编组 Ctrl+G"><span class="kd-tool-icon">G</span><span class="kd-tool-label">编组</span></button>
+              <button class="kd-tool-btn" @click="designer?.ungroupSel()" title="解组 Ctrl+Shift+G"><span class="kd-tool-icon">U</span><span class="kd-tool-label">解组</span></button>
+            </div>
+          </div>
+        </template>
+
+        <!-- ===== 正常模式左面板 ===== -->
+        <template v-else>
         <!-- ===== 底色设计 ===== -->
         <div class="panel-section">
           <div class="panel-title">底色设计</div>
@@ -233,16 +284,177 @@
             </div>
           </div>
         </div>
+        </template>
       </div><!-- /left-panel -->
 
-      <!-- 3D 视口 -->
-      <div class="viewport" ref="viewport">
-        <span class="viewport-hint">左键旋转 · 右键平移 · 滚轮缩放 · 点击键帽查看</span>
+      <!-- 3D 视口 / 2D 编辑器（共用区域） -->
+      <div class="viewport-wrap">
+        <!-- 3D 视口（非设计模式） -->
+        <div class="viewport" ref="viewport" v-show="!showDesigner">
+          <span class="viewport-hint">左键旋转 · 右键平移 · 滚轮缩放 · 点击键帽查看</span>
+        </div>
+        <!-- 2D 编辑器（设计模式） -->
+        <div class="kd-inline" v-if="showDesigner">
+          <div class="kd-topbar">
+            <button class="kd-tb-btn kd-tb-save" @click="saveDesigner">保存</button>
+            <button class="kd-tb-btn" @click="closeDesigner">返回</button>
+            <div class="kd-tb-sep"></div>
+            <button class="kd-tb-btn" @click="designer?.undo()" :disabled="!dCanUndo" title="撤销 Ctrl+Z">↩</button>
+            <button class="kd-tb-btn" @click="designer?.redo()" :disabled="!dCanRedo" title="重做 Ctrl+Shift+Z">↪</button>
+            <div class="kd-tb-sep"></div>
+            <span class="kd-tb-label">缩放</span>
+            <input class="kd-zoom-slider" type="range" min="25" max="400" step="5"
+              v-model.number="dZoom" @input="designer?.setZoom(dZoom)" />
+            <span class="kd-tb-val">{{ dZoom }}%</span>
+            <div class="kd-tb-sep"></div>
+            <label class="kd-tb-chk"><input type="checkbox" v-model="dGridOn"
+              @change="designer?.setGridVis(dGridOn)" /> 网格</label>
+            <label class="kd-tb-chk"><input type="checkbox" v-model="dSnapGrid"
+              @change="designer?.setSnapGrid(dSnapGrid)" /> 吸附</label>
+            <div class="kd-tb-spacer"></div>
+            <span class="kd-tb-info">{{ selectedDef?.label }} ({{ selectedDef?.w || 1 }}u, R{{ selectedDef?.row || 3 }})</span>
+          </div>
+          <div class="kd-canvas-area" ref="kdCanvas"></div>
+        </div>
       </div>
 
-      <!-- 右面板（键帽信息） -->
-      <div class="right-panel" :class="{ collapsed: !selectedKey }">
-        <template v-if="selectedKey">
+      <!-- 右面板 -->
+      <div class="right-panel" :class="{ collapsed: !selectedKey && !showDesigner }">
+
+        <!-- ===== 设计模式右面板 ===== -->
+        <template v-if="showDesigner">
+          <!-- 属性面板 -->
+          <div class="kd-sec" v-if="dSel">
+            <div class="kd-sec-title">属性</div>
+            <div class="kd-row">
+              <span class="kd-lbl">填充</span>
+              <select class="kd-sel-sm" v-model="dFillType" @change="applyFill">
+                <option value="solid">纯色</option>
+                <option value="linear">线性渐变</option>
+                <option value="radial">径向渐变</option>
+              </select>
+            </div>
+            <div class="kd-row">
+              <div class="kd-swatch" :style="{background: dFillC1}">
+                <input type="color" :value="dFillC1" @input="dFillC1=$event.target.value; applyFill()" />
+              </div>
+              <template v-if="dFillType !== 'solid'">
+                <div class="kd-swatch" :style="{background: dFillC2}">
+                  <input type="color" :value="dFillC2" @input="dFillC2=$event.target.value; applyFill()" />
+                </div>
+                <input class="kd-num" type="number" v-model.number="dGradAngle" @change="applyFill" title="角度" style="width:48px" />
+              </template>
+            </div>
+            <div class="kd-row">
+              <span class="kd-lbl">描边</span>
+              <div class="kd-swatch" :style="{background: dStrokeC}">
+                <input type="color" :value="dStrokeC" @input="dStrokeC=$event.target.value; designer?.setStroke(dStrokeC, dStrokeW)" />
+              </div>
+              <input class="kd-num" type="number" min="0" max="50" v-model.number="dStrokeW"
+                @change="designer?.setStroke(dStrokeC, dStrokeW)" style="width:48px" />
+            </div>
+            <div class="kd-row">
+              <span class="kd-lbl">不透明</span>
+              <input type="range" min="0" max="1" step="0.01" v-model.number="dOpacity"
+                @input="designer?.setOpacity(dOpacity)" style="flex:1" />
+              <span class="kd-val">{{ (dOpacity*100).toFixed(0) }}%</span>
+            </div>
+            <div class="kd-row">
+              <span class="kd-lbl">X</span><input class="kd-num" type="number" v-model.number="dSel.left" @change="applyTransform" />
+              <span class="kd-lbl">Y</span><input class="kd-num" type="number" v-model.number="dSel.top" @change="applyTransform" />
+            </div>
+            <div class="kd-row">
+              <span class="kd-lbl">W</span><span class="kd-val">{{ dSel.width }}</span>
+              <span class="kd-lbl">H</span><span class="kd-val">{{ dSel.height }}</span>
+              <span class="kd-lbl">°</span><input class="kd-num" type="number" v-model.number="dSel.angle" @change="applyTransform" style="width:48px" />
+            </div>
+            <template v-if="dSel.type === 'i-text' || dSel.type === 'text'">
+              <div class="kd-sec-title" style="margin-top:8px">文本</div>
+              <div class="kd-row">
+                <select class="kd-sel-sm" style="flex:1" v-model="dSel.fontFamily" @change="designer?.setFontFamily(dSel.fontFamily)">
+                  <option v-for="f in dFonts" :key="f" :value="f">{{ f }}</option>
+                </select>
+                <input class="kd-num" type="number" min="6" max="200" v-model.number="dSel.fontSize"
+                  @change="designer?.setFontSize(dSel.fontSize)" style="width:48px" title="字号" />
+              </div>
+              <div class="kd-row">
+                <button class="kd-mini-btn" :class="{ active: dSel.fontWeight==='bold' }" @click="designer?.toggleBold()"><b>B</b></button>
+                <button class="kd-mini-btn" :class="{ active: dSel.fontStyle==='italic' }" @click="designer?.toggleItalic()"><i>I</i></button>
+                <span class="kd-lbl">间距</span>
+                <input class="kd-num" type="number" v-model.number="dSel.charSpacing"
+                  @change="designer?.setCharSpacing(dSel.charSpacing)" style="width:48px" />
+                <span class="kd-lbl">行高</span>
+                <input class="kd-num" type="number" min="0.5" max="3" step="0.1" v-model.number="dSel.lineHeight"
+                  @change="designer?.setLineHeight(dSel.lineHeight)" style="width:48px" />
+              </div>
+              <div class="kd-row">
+                <button class="kd-mini-btn" @click="designer?.textToPath()">转曲</button>
+                <button class="kd-mini-btn" @click="$refs.fontUpload?.click()">+ 字体</button>
+                <input ref="fontUpload" type="file" accept=".ttf,.otf,.woff" style="display:none"
+                  @change="onFontUpload($event)" />
+              </div>
+            </template>
+          </div>
+          <div class="kd-sec" v-else>
+            <div class="kd-empty-hint">选择对象查看属性</div>
+          </div>
+
+          <!-- 图层面板 -->
+          <div class="kd-sec kd-ly-sec">
+            <div class="kd-sec-title kd-ly-header">
+              <span>图层</span>
+              <button class="kd-ly-add" @click="designer?.addLayer()">+</button>
+            </div>
+            <div class="kd-ly-list">
+              <div v-for="(ly, idx) in dLayers" :key="ly.id" class="kd-ly-row"
+                :class="{ active: ly.active }" @click="designer?.setActiveLayer(idx)">
+                <span class="kd-ly-name">{{ ly.name }}</span>
+                <span class="kd-ly-cnt">{{ ly.count }}</span>
+                <button class="kd-ly-btn" @click.stop="designer?.toggleLayerVis(idx)">{{ ly.visible ? '👁' : '🚫' }}</button>
+                <button class="kd-ly-btn" @click.stop="designer?.toggleLayerLock(idx)">{{ ly.locked ? '🔒' : '🔓' }}</button>
+                <button class="kd-ly-btn" @click.stop="designer?.moveLayer(idx, -1)" :disabled="idx===0">↑</button>
+                <button class="kd-ly-btn" @click.stop="designer?.moveLayer(idx, 1)" :disabled="idx===dLayers.length-1">↓</button>
+                <button class="kd-ly-btn kd-ly-del" @click.stop="designer?.removeLayer(idx)" :disabled="dLayers.length<=1">✕</button>
+              </div>
+            </div>
+            <div v-if="dLayers.length" class="kd-ly-opts">
+              <div class="kd-row">
+                <span class="kd-lbl">不透明</span>
+                <input type="range" min="0" max="1" step="0.01"
+                  :value="dLayers[dActiveLy]?.opacity ?? 1"
+                  @input="designer?.setLayerOpacity(dActiveLy, +$event.target.value)" style="flex:1" />
+              </div>
+              <div class="kd-row">
+                <span class="kd-lbl">混合</span>
+                <select class="kd-sel-sm" style="flex:1"
+                  :value="dLayers[dActiveLy]?.blendMode || 'source-over'"
+                  @change="designer?.setLayerBlend(dActiveLy, $event.target.value)">
+                  <option value="source-over">正常</option>
+                  <option value="multiply">正片叠底</option>
+                  <option value="screen">滤色</option>
+                  <option value="overlay">叠加</option>
+                  <option value="darken">变暗</option>
+                  <option value="lighten">变亮</option>
+                  <option value="color-dodge">颜色减淡</option>
+                  <option value="color-burn">颜色加深</option>
+                  <option value="difference">差值</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 预设文字 -->
+          <div class="kd-sec">
+            <div class="kd-sec-title">预设文字</div>
+            <div class="kd-legend-grid">
+              <button v-for="lg in kdLegends" :key="lg.label" class="kd-legend-btn"
+                @click="insertLegendItem(lg)" :title="lg.text">{{ lg.label }}</button>
+            </div>
+          </div>
+        </template>
+
+        <!-- ===== 正常模式右面板 ===== -->
+        <template v-else-if="selectedKey">
           <div class="prop-header">
             <div>
               <div class="prop-key-name">{{ selectedDef.label || selectedDef.id }}</div>
@@ -274,16 +486,18 @@
             <span class="prop-info-text">R{{ selectedDef.row || 3 }}</span>
           </div>
 
-          <div class="prop-wip-box">
-            <div class="prop-wip-icon">🔧</div>
-            <div class="prop-wip-text">单键详细设计<br/><small>（开发中，敬请期待）</small></div>
-          </div>
+          <button class="kd-open-btn" @click="openDesigner">✏ 编辑单键设计</button>
         </template>
       </div>
 
     </div><!-- /editor-body -->
+
   </div>
 
+  <!-- Fabric.js (矢量画布) / Paper.js (布尔运算) / OpenType.js (字体转曲) -->
+  <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/paper@0.12.18/dist/paper-full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <script type="module" src="./editor.js"></script>
 </body>

@@ -539,10 +539,10 @@ input, select { font: inherit; color: inherit; }
 
 /* ============ 视口 ============ */
 .viewport {
-  flex: 1;
   position: relative;
   overflow: hidden;
   background: #0e0e16;
+  width: 100%; height: 100%;
 }
 .viewport canvas { display: block; }
 .viewport-hint {
@@ -712,6 +712,164 @@ input, select { font: inherit; color: inherit; }
   font-weight: 600;
 }
 .case-mat-btn:not(.active):hover { background: var(--border); }
+
+/* ============ 单键编辑器打开按钮 ============ */
+.kd-open-btn {
+  width: 100%;
+  padding: 10px 0;
+  margin-top: auto;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(0,212,255,0.1), rgba(124,77,255,0.1));
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.kd-open-btn:hover { background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(124,77,255,0.2)); }
+
+/* ============ 单键内嵌编辑器 ============ */
+.viewport-wrap {
+  flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  position: relative;
+}
+.viewport-wrap > .viewport { flex: 1; }
+
+.kd-inline {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg);
+}
+
+/* 设计模式左面板 */
+.left-panel.kd-left-mode { padding: 0; overflow-y: auto; }
+
+.kd-tg { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.kd-tg-title {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--text2); margin-bottom: 6px;
+}
+.kd-tg-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 3px;
+}
+
+/* 顶部栏 */
+.kd-topbar {
+  height: 38px; flex-shrink: 0;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 10px; gap: 6px;
+}
+.kd-tb-btn {
+  padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  border: 1px solid var(--border); color: var(--text2); transition: all 0.15s;
+}
+.kd-tb-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.kd-tb-btn:disabled { opacity: 0.3; }
+.kd-tb-save { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; border: none; font-weight: 600; }
+.kd-tb-save:hover { opacity: 0.85; }
+.kd-tb-sep { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
+.kd-tb-label { font-size: 11px; color: var(--text2); }
+.kd-zoom-slider { width: 80px; accent-color: var(--accent); }
+.kd-tb-val { font-size: 11px; color: var(--text2); width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+.kd-tb-chk { font-size: 11px; color: var(--text2); display: flex; align-items: center; gap: 3px; cursor: pointer; user-select: none; }
+.kd-tb-chk input { accent-color: var(--accent); }
+.kd-tb-spacer { flex: 1; }
+.kd-tb-info { font-size: 12px; color: var(--text); font-weight: 500; }
+
+/* (kd-body 已移除 - 改用 inline 布局) */
+
+/* 工具按钮（设计模式左面板内） */
+.kd-tool-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 4px 2px; border-radius: 6px; gap: 1px;
+  color: var(--text2); transition: all 0.15s; cursor: pointer;
+  border: 1px solid transparent; min-height: 38px;
+}
+.kd-tool-btn:hover { background: var(--surface2); color: var(--text); border-color: var(--border); }
+.kd-tool-btn.active { background: var(--accent2); color: #fff; border-color: transparent; }
+.kd-tool-icon { font-size: 14px; line-height: 1; }
+.kd-tool-label { font-size: 9px; line-height: 1; white-space: nowrap; }
+
+/* 画布区域 */
+.kd-canvas-area {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; background: #0a0a0f;
+}
+.kd-sec { padding: 10px; border-bottom: 1px solid var(--border); }
+.kd-sec-title {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--text2); margin-bottom: 8px;
+}
+.kd-row {
+  display: flex; align-items: center; gap: 4px; margin-bottom: 5px;
+}
+.kd-lbl { font-size: 10px; color: var(--text2); flex-shrink: 0; min-width: 16px; }
+.kd-val { font-size: 11px; color: var(--text2); min-width: 28px; text-align: right; font-variant-numeric: tabular-nums; }
+.kd-num {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 5px; font-size: 11px; color: var(--text); outline: none; width: 56px;
+  font-variant-numeric: tabular-nums;
+}
+.kd-num:focus { border-color: var(--accent); }
+.kd-sel-sm {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 5px; font-size: 11px; color: var(--text); outline: none;
+}
+.kd-sel-sm:focus { border-color: var(--accent); }
+.kd-swatch {
+  width: 24px; height: 24px; border-radius: 4px; border: 2px solid var(--border);
+  cursor: pointer; position: relative; overflow: hidden; flex-shrink: 0;
+}
+.kd-swatch:hover { border-color: var(--accent); }
+.kd-swatch input[type="color"] {
+  position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px);
+  border: none; padding: 0; cursor: pointer; opacity: 0;
+}
+.kd-mini-btn {
+  padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;
+  border: 1px solid var(--border); color: var(--text2); transition: all 0.15s;
+}
+.kd-mini-btn:hover { border-color: var(--accent); color: var(--text); }
+.kd-mini-btn.active { background: var(--accent2); color: #fff; border-color: transparent; }
+.kd-empty-hint { text-align: center; padding: 16px 0; font-size: 11px; color: var(--text2); opacity: 0.5; }
+
+/* 图层面板 */
+.kd-ly-sec { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.kd-ly-header { display: flex; align-items: center; justify-content: space-between; }
+.kd-ly-add {
+  width: 20px; height: 20px; border-radius: 4px; background: var(--surface2);
+  border: 1px solid var(--border); color: var(--accent); font-size: 14px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.kd-ly-add:hover { background: var(--accent); color: #000; }
+.kd-ly-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.kd-ly-row {
+  display: flex; align-items: center; gap: 3px; padding: 4px 6px;
+  border-radius: 4px; cursor: pointer; transition: background 0.15s;
+}
+.kd-ly-row:hover { background: var(--surface2); }
+.kd-ly-row.active { background: var(--surface2); outline: 1px solid var(--accent); }
+.kd-ly-name { flex: 1; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kd-ly-cnt { font-size: 9px; color: var(--text2); margin-right: 2px; }
+.kd-ly-btn {
+  width: 18px; height: 18px; border-radius: 3px; font-size: 10px;
+  display: flex; align-items: center; justify-content: center; transition: background 0.15s;
+}
+.kd-ly-btn:hover:not(:disabled) { background: var(--border); }
+.kd-ly-btn:disabled { opacity: 0.2; }
+.kd-ly-del:hover:not(:disabled) { background: var(--danger); color: #fff; }
+.kd-ly-opts { padding-top: 6px; border-top: 1px solid var(--border); margin-top: 6px; }
+
+/* 预设文字网格 */
+.kd-legend-grid {
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.kd-legend-btn {
+  padding: 3px 6px; border-radius: 4px; font-size: 10px; font-weight: 500;
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text2);
+  transition: all 0.15s;
+}
+.kd-legend-btn:hover { border-color: var(--accent); color: var(--text); background: var(--border); }
 
 /* ============ 响应式 ============ */
 @media (max-width: 900px) {

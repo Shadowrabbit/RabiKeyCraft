@@ -653,6 +653,17 @@ export class KeycapRenderer {
     this._drawLegend(cap, base, legend, label, props.legendFont);
   }
 
+  /** 用外部画布直接替换键帽纹理（单键编辑器用） */
+  updateKeycapTexture(keyId, srcCanvas) {
+    var cap = this._keycaps.get(keyId);
+    if (!cap || !srcCanvas) return;
+    var ctx = cap.canvas.getContext('2d');
+    ctx.clearRect(0, 0, cap.canvas.width, cap.canvas.height);
+    ctx.drawImage(srcCanvas, 0, 0, cap.canvas.width, cap.canvas.height);
+    cap.texture.needsUpdate = true;
+    cap.topMat.color.set(0xffffff);
+  }
+
   _drawLegend(cap, baseColor, legendColor, label, font) {
     var { canvas, texture, def } = cap;
     var ctx = canvas.getContext('2d');

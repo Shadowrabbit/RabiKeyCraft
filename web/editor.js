@@ -3,12 +3,14 @@
 // \ V/ @brief KeyCraft 键帽编辑器 Vue 应用（底色 + 图案图层统一架构）
 // | "") @author Catarina·RabbitNya, yingtu0401@gmail.com
 // / |
-// / \\ @Modified 2026-03-08 12:00:00
+// / \\ @Modified 2026-03-08 22:30:00
 // *(__\_\ @Copyright Copyright (c) 2026, Shadowrabbit
 // ******************************************************************
 
 import { layouts, groupNames } from './lib/layout-data.js';
 import { KeycapRenderer } from './lib/keycap-renderer.js';
+import { KeyDesigner } from './lib/key-designer.js';
+import { KD_LEGENDS, insertLegend } from './lib/kd-legends.js';
 
 var _layerUid = 0;
 
@@ -65,8 +67,39 @@ createApp({
       propBase: '#3c3c3c',
       propLegend: '#ffffff',
 
-      // 单键覆盖（预留，当前不可编辑）
-      overrides: {}
+      // 单键覆盖
+      overrides: {},
+
+      // ===== 单键矢量编辑器 =====
+      showDesigner: false,
+      dTool: 'select',
+      dZoom: 100,
+      dGridOn: true,
+      dSnapGrid: true,
+      dCanUndo: false,
+      dCanRedo: false,
+      dSel: null,         // 当前选中对象属性
+      dLayers: [],
+      dActiveLy: 0,
+      dFonts: [],
+      dFillType: 'solid',
+      dFillC1: '#7c4dff',
+      dFillC2: '#00d4ff',
+      dGradAngle: 0,
+      dStrokeC: '#ffffff',
+      dStrokeW: 2,
+      dOpacity: 1,
+      kdTools: [
+        { id: 'select',  icon: '⇢', name: '选择', tip: '选择 (V)' },
+        { id: 'rect',    icon: '⬜', name: '矩形', tip: '矩形 (R)' },
+        { id: 'ellipse', icon: '⭕', name: '椭圆', tip: '椭圆 (E)' },
+        { id: 'line',    icon: '╱',  name: '线段', tip: '线段 (L)' },
+        { id: 'pen',     icon: '✒',  name: '钢笔', tip: '贝塞尔钢笔 (P)' },
+        { id: 'text',    icon: 'T',  name: '文本', tip: '文本 (T)' },
+        { id: 'image',   icon: '🖼', name: '图片', tip: '图片 (I)' },
+        { id: 'draw',    icon: '✏',  name: '画笔', tip: '自由画笔 (D)' },
+      ],
+      kdLegends: KD_LEGENDS
     };
   },
 
@@ -218,6 +251,103 @@ createApp({
 
     onDeselectKey() {
       this._renderer.deselectKey();
+    },
+
+    // ==================== 单键矢量编辑器 ====================
+
+    openDesigner() {
+      if (!this.selectedKey || !this.selectedDef) return;
+      this.showDesigner = true;
+      this.$nextTick(() => {
+        var el = this.$refs.kdCanvas;
+        if (!el) return;
+        this.designer = new KeyDesigner(el, {
+          onSelectionChange: info => this._onDSel(info),
+          onLayerChange: (layers, active) => { this.dLayers = layers; this.dActiveLy = active; },
+          onHistoryChange: (u, r) => { this.dCanUndo = u; this.dCanRedo = r; },
+          onToolChange: id => { this.dTool = id; },
+          onFontsChange: fonts => { this.dFonts = fonts; }
+        });
+        this.dFonts = this.designer.getFonts();
+        var ov = this.overrides[this.selectedKey];
+        var zc = this.zoneColors[this.selectedDef.group] || { base: '#3c3c3c' };
+        var baseColor = ov?.base ?? zc.base;
+        this.designer.open(this.selectedDef, baseColor, ov?.fabricData || null);
+        this.dZoom = this.designer.getZoom();
+      });
+    },
+
+    closeDesigner() {
+      if (this.designer) { this.designer.close(); this.designer = null; }
+      this.showDesigner = false;
+      this.dSel = null;
+    },
+
+    saveDesigner() {
+      if (!this.designer || !this.selectedKey) return;
+      var result = this.designer.save();
+      if (!result) return;
+
+      // 存储 Fabric.js JSON 到覆盖
+      if (!this.overrides[this.selectedKey]) this.overrides[this.selectedKey] = {};
+      this.overrides[this.selectedKey].fabricData = result.json;
+
+      // 将画布渲染到 3D 纹理
+      this._renderer.updateKeycapTexture(this.selectedKey, result.textureCanvas);
+
+      this._saveDraft();
+      this.closeDesigner();
+    },
+
+    setDTool(id) {
+      this.dTool = id;
+      this.designer?.setTool(id);
+    },
+
+    _onDSel(info) {
+      this.dSel = info;
+      if (info) {
+        this.dOpacity = info.opacity ?? 1;
+        this.dStrokeC = info.stroke || '#ffffff';
+        this.dStrokeW = info.strokeWidth || 0;
+        this.dFillType = info.fillType || 'solid';
+        if (info.fillType === 'solid') {
+          this.dFillC1 = (typeof info.fill === 'string') ? info.fill : '#7c4dff';
+        } else {
+          this.dFillC1 = info.gradC1 || '#7c4dff';
+          this.dFillC2 = info.gradC2 || '#00d4ff';
+        }
+      }
+    },
+
+    applyFill() {
+      if (!this.designer) return;
+      if (this.dFillType === 'solid') {
+        this.designer.setFill(this.dFillC1);
+      } else {
+        this.designer.setGradient(this.dFillType, this.dFillC1, this.dFillC2, this.dGradAngle);
+      }
+    },
+
+    applyTransform() {
+      if (!this.designer || !this.dSel) return;
+      this.designer.setTransform({ left: this.dSel.left, top: this.dSel.top, angle: this.dSel.angle });
+    },
+
+    insertLegendItem(lg) {
+      if (!this.designer?._fc) return;
+      var fc = this.designer._fc;
+      var t = insertLegend(fc, lg, this.designer._cw / 2, this.designer._ch / 2);
+      t._layerIdx = this.designer._aLy;
+      this.designer._addToLy(t);
+      this.designer._pushH();
+    },
+
+    async onFontUpload(e) {
+      var file = e.target.files?.[0];
+      if (!file || !this.designer) return;
+      await this.designer.uploadFont(file);
+      e.target.value = '';
     },
 
     // ==================== 图层管理 ====================
