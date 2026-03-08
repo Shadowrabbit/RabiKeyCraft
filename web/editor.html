@@ -1,0 +1,394 @@
+<!doctype html>
+<!--
+ ******************************************************************
+       /\ /|       @file       editor.html
+       \ V/        @brief      KeyCraft Studio 键帽 3D 编辑器
+       | "")       @author     Catarina·RabbitNya, yingtu0401@gmail.com
+       /  |
+      /  \\        @Modified   2026-03-09 03:30:00
+    *(__\_\        @Copyright  Copyright (c) 2026, Shadowrabbit
+ ******************************************************************
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KeyCraft Editor - 键帽设计器</title>
+  <link rel="stylesheet" href="./editor.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.183.2/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.183.2/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <!-- ========== 顶部工具栏 ========== -->
+    <div class="toolbar">
+      <a class="toolbar-logo" href="./index.html">⌨ KeyCraft</a>
+      <div class="toolbar-sep"></div>
+
+      <!-- 布局 -->
+      <div class="toolbar-group">
+        <span class="toolbar-label">布局</span>
+        <select class="toolbar-select" v-model="currentLayout" @change="onLayoutChange">
+          <option v-for="(lay, key) in layouts" :key="key" :value="key">{{ lay.name }}</option>
+        </select>
+      </div>
+
+      <!-- 轮廓 -->
+      <div class="toolbar-group">
+        <span class="toolbar-label">轮廓</span>
+        <div class="profile-switch">
+          <button class="profile-btn" :class="{ active: keycapProfile === 'cherry' }" @click="keycapProfile='cherry'; onProfileChange()">Cherry</button>
+          <button class="profile-btn" :class="{ active: keycapProfile === 'oem' }" @click="keycapProfile='oem'; onProfileChange()">OEM</button>
+          <button class="profile-btn" :class="{ active: keycapProfile === 'sa' }" @click="keycapProfile='sa'; onProfileChange()">SA</button>
+          <button class="profile-btn" :class="{ active: keycapProfile === 'dsa' }" @click="keycapProfile='dsa'; onProfileChange()">DSA</button>
+          <button class="profile-btn" :class="{ active: keycapProfile === 'xda' }" @click="keycapProfile='xda'; onProfileChange()">XDA</button>
+          <button class="profile-btn" :class="{ active: keycapProfile === 'moa' }" @click="keycapProfile='moa'; onProfileChange()">MOA</button>
+        </div>
+      </div>
+
+      <!-- 材质 -->
+      <div class="toolbar-group">
+        <span class="toolbar-label">材质</span>
+        <select class="toolbar-select toolbar-select-sm" v-model="keycapMaterial" @change="onMaterialChange">
+          <option value="pbt">PBT 哑光</option>
+          <option value="abs">ABS 光滑</option>
+          <option value="translucent">半透明</option>
+          <option value="metal">金属涂层</option>
+        </select>
+      </div>
+
+      <!-- 配色 -->
+      <div class="toolbar-group">
+        <span class="toolbar-label">配色</span>
+        <select class="toolbar-select" v-model="currentScheme" @change="onSchemeChange">
+          <option v-for="s in colorSchemes" :key="s.id" :value="s.id">{{ s.name }}</option>
+        </select>
+      </div>
+
+      <div class="toolbar-sep"></div>
+
+      <!-- 模式 -->
+      <div class="mode-switch">
+        <button class="mode-btn" :class="{ active: mode === 'pro' }" @click="setMode('pro')">专业模式</button>
+        <button class="mode-btn" :class="{ active: mode === 'simple' }" @click="setMode('simple')">简易模式</button>
+      </div>
+
+      <div class="toolbar-spacer"></div>
+
+      <button class="toolbar-btn toolbar-btn-ghost" @click="resetView">重置视角</button>
+      <button class="toolbar-btn toolbar-btn-primary" @click="exportPNG">导出 PNG</button>
+    </div>
+
+    <!-- ========== 主体 ========== -->
+    <div class="editor-body">
+
+      <!-- 左面板 -->
+      <div class="left-panel">
+        <!-- ===== 专业模式 ===== -->
+        <template v-if="mode === 'pro'">
+          <div class="panel-section">
+            <div class="panel-title">配色方案</div>
+            <div class="scheme-grid">
+              <div class="scheme-card" v-for="s in colorSchemes" :key="s.id"
+                :class="{ active: currentScheme === s.id }" @click="applyScheme(s.id)">
+                <div class="scheme-swatch" :style="{ background: s.base, '--sw-accent': s.accent }"></div>
+                <span class="scheme-name">{{ s.name }}</span>
+              </div>
+            </div>
+          </div>
+          <!-- 自定义配色 -->
+          <div class="panel-section custom-scheme-section">
+            <div class="panel-title custom-scheme-title">
+              <span>自定义配色</span>
+              <label class="toggle-switch">
+                <input type="checkbox" v-model="useCustomScheme" @change="toggleCustomScheme" />
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <template v-if="useCustomScheme">
+              <div class="custom-color-row">
+                <span class="custom-color-label">字母底色</span>
+                <div class="custom-color-swatch" :style="{background: customScheme.base}">
+                  <input type="color" v-model="customScheme.base" @input="onCustomColorChange" />
+                </div>
+                <input class="custom-color-hex" v-model="customScheme.base" @change="onCustomColorChange" />
+              </div>
+              <div class="custom-color-row">
+                <span class="custom-color-label">字母文字</span>
+                <div class="custom-color-swatch" :style="{background: customScheme.legend}">
+                  <input type="color" v-model="customScheme.legend" @input="onCustomColorChange" />
+                </div>
+                <input class="custom-color-hex" v-model="customScheme.legend" @change="onCustomColorChange" />
+              </div>
+              <div class="custom-color-row">
+                <span class="custom-color-label">修饰底色</span>
+                <div class="custom-color-swatch" :style="{background: customScheme.modBase}">
+                  <input type="color" v-model="customScheme.modBase" @input="onCustomColorChange" />
+                </div>
+                <input class="custom-color-hex" v-model="customScheme.modBase" @change="onCustomColorChange" />
+              </div>
+              <div class="custom-color-row">
+                <span class="custom-color-label">修饰文字</span>
+                <div class="custom-color-swatch" :style="{background: customScheme.modLegend}">
+                  <input type="color" v-model="customScheme.modLegend" @input="onCustomColorChange" />
+                </div>
+                <input class="custom-color-hex" v-model="customScheme.modLegend" @change="onCustomColorChange" />
+              </div>
+              <div class="custom-color-row">
+                <span class="custom-color-label">强调底色</span>
+                <div class="custom-color-swatch" :style="{background: customScheme.accentBase}">
+                  <input type="color" v-model="customScheme.accentBase" @input="onCustomColorChange" />
+                </div>
+                <input class="custom-color-hex" v-model="customScheme.accentBase" @change="onCustomColorChange" />
+              </div>
+              <div class="custom-color-row">
+                <span class="custom-color-label">强调文字</span>
+                <div class="custom-color-swatch" :style="{background: customScheme.accentLegend}">
+                  <input type="color" v-model="customScheme.accentLegend" @input="onCustomColorChange" />
+                </div>
+                <input class="custom-color-hex" v-model="customScheme.accentLegend" @change="onCustomColorChange" />
+              </div>
+            </template>
+          </div>
+
+          <div class="panel-section">
+            <div class="panel-title">键位分区</div>
+            <div class="group-list">
+              <div class="group-item" v-for="(gname, gkey) in groupNames" :key="gkey">
+                <span class="group-dot" :style="{ background: getGroupColor(gkey) }"></span>
+                <span>{{ gname }}</span>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ===== 简易模式 ===== -->
+        <template v-else>
+          <!-- 提示 -->
+          <div class="panel-section simple-tip">
+            <div class="tip-icon">✨</div>
+            <div class="tip-text">上传图片到图层，自动按键帽位置切割覆盖，支持多图层叠加！</div>
+          </div>
+
+          <!-- 图层列表 -->
+          <div class="panel-section layer-section">
+            <div class="panel-title layer-title-row">
+              <span>图层</span>
+              <button class="layer-add-btn" @click="addLayer" title="添加图层">+</button>
+            </div>
+
+            <div class="layer-list">
+              <div v-for="(layer, idx) in layers" :key="layer.id"
+                class="layer-card" :class="{ active: activeLayerIdx === idx }"
+                @click="selectLayer(idx)">
+                <!-- 缩略图 -->
+                <div class="layer-thumb">
+                  <img v-if="layer.imageUrl" :src="layer.imageUrl" />
+                  <span v-else class="layer-empty-icon">🖼</span>
+                </div>
+                <!-- 信息 -->
+                <div class="layer-info">
+                  <div class="layer-name">{{ layer.name }}</div>
+                  <div class="layer-meta">
+                    <span v-if="layer.image">{{ Math.round(layer.opacity * 100) }}%</span>
+                    <span v-else class="layer-no-img">未上传</span>
+                  </div>
+                </div>
+                <!-- 操作 -->
+                <div class="layer-actions">
+                  <button class="layer-act-btn" @click.stop="toggleLayerVisible(idx)"
+                    :title="layer.visible ? '隐藏' : '显示'">
+                    {{ layer.visible ? '👁' : '🚫' }}
+                  </button>
+                  <button class="layer-act-btn" @click.stop="moveLayer(idx, -1)" title="上移"
+                    :disabled="idx === 0">↑</button>
+                  <button class="layer-act-btn" @click.stop="moveLayer(idx, 1)" title="下移"
+                    :disabled="idx === layers.length - 1">↓</button>
+                  <button class="layer-act-btn danger" @click.stop="removeLayer(idx)" title="删除">✕</button>
+                </div>
+              </div>
+
+              <!-- 空状态 -->
+              <div v-if="layers.length === 0" class="layer-empty-hint">
+                点击上方 + 添加第一个图层
+              </div>
+            </div>
+          </div>
+
+          <!-- 活跃图层设置 -->
+          <template v-if="activeLayer">
+            <div class="panel-section simple-panel">
+              <div class="panel-title">{{ activeLayer.name }} — 图片</div>
+
+              <!-- 上传区 / 预览 -->
+              <div v-if="!activeLayer.image" class="upload-area"
+                @click="$refs.fileInput.click()"
+                @dragover.prevent="dragOver = true"
+                @dragleave="dragOver = false"
+                @drop.prevent="onDrop"
+                :class="{ dragging: dragOver }">
+                <div class="upload-icon">🖼</div>
+                <div class="upload-text">点击或拖拽图片</div>
+                <div class="upload-hint">JPG / PNG / WebP</div>
+                <input ref="fileInput" class="upload-input" type="file" accept="image/*" @change="onFileSelect" />
+              </div>
+              <div v-else class="image-preview">
+                <img :src="activeLayer.imageUrl" />
+                <button class="image-clear" @click="clearLayerImage">✕</button>
+              </div>
+            </div>
+
+            <!-- 已有图片：位置/透明度控制 -->
+            <div v-if="activeLayer.image" class="panel-section simple-panel">
+              <div class="panel-title">位置与透明度</div>
+              <div class="slider-group">
+                <div class="slider-row">
+                  <span class="slider-label">X 偏移</span>
+                  <input type="range" min="0" max="1" step="0.01"
+                    v-model.number="activeLayer.offsetX" @input="onLayerUpdate" />
+                  <span class="slider-value">{{ (activeLayer.offsetX * 100).toFixed(0) }}%</span>
+                </div>
+                <div class="slider-row">
+                  <span class="slider-label">Y 偏移</span>
+                  <input type="range" min="0" max="1" step="0.01"
+                    v-model.number="activeLayer.offsetY" @input="onLayerUpdate" />
+                  <span class="slider-value">{{ (activeLayer.offsetY * 100).toFixed(0) }}%</span>
+                </div>
+                <div class="slider-row">
+                  <span class="slider-label">缩放</span>
+                  <input type="range" min="0.3" max="3" step="0.05"
+                    v-model.number="activeLayer.scale" @input="onLayerUpdate" />
+                  <span class="slider-value">{{ activeLayer.scale.toFixed(2) }}x</span>
+                </div>
+                <div class="slider-row">
+                  <span class="slider-label">不透明</span>
+                  <input type="range" min="0" max="1" step="0.05"
+                    v-model.number="activeLayer.opacity" @input="onLayerUpdate" />
+                  <span class="slider-value">{{ (activeLayer.opacity * 100).toFixed(0) }}%</span>
+                </div>
+              </div>
+              <button class="simple-reset-btn" @click="resetLayerPos">↺ 重置位置</button>
+            </div>
+          </template>
+
+          <!-- 显示选项（全局） -->
+          <div v-if="hasAnyImage" class="panel-section simple-panel">
+            <div class="panel-title">显示选项</div>
+            <div class="toggle-row">
+              <span class="toggle-label">显示按键文字</span>
+              <label class="toggle-switch">
+                <input type="checkbox" v-model="simpleShowLegend" @change="onToggleLegend" />
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div v-if="simpleShowLegend" class="toggle-row">
+              <span class="toggle-label">文字颜色</span>
+              <div class="legend-color-pick">
+                <div class="legend-dot" :class="{ active: simpleLegendColor === '#ffffff' }"
+                  style="background:#fff" @click="simpleLegendColor='#ffffff'; onLegendColorChange()"></div>
+                <div class="legend-dot" :class="{ active: simpleLegendColor === '#000000' }"
+                  style="background:#000" @click="simpleLegendColor='#000000'; onLegendColorChange()"></div>
+                <div class="legend-dot" :class="{ active: simpleLegendColor === '#ff4466' }"
+                  style="background:#ff4466" @click="simpleLegendColor='#ff4466'; onLegendColorChange()"></div>
+                <div class="legend-dot" :class="{ active: simpleLegendColor === '#00d4ff' }"
+                  style="background:#00d4ff" @click="simpleLegendColor='#00d4ff'; onLegendColorChange()"></div>
+                <div class="legend-dot custom-dot" :style="{ background: simpleLegendColor }">
+                  <input type="color" :value="simpleLegendColor"
+                    @input="simpleLegendColor=$event.target.value; onLegendColorChange()" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 键盘外壳（两个模式都可用） -->
+        <div class="panel-section case-section">
+          <div class="panel-title">键盘外壳</div>
+          <div class="case-row">
+            <span class="case-label">颜色</span>
+            <div class="case-color-swatch" :style="{ background: caseColor }">
+              <input type="color" :value="caseColor" @input="caseColor = $event.target.value; onCaseColorChange()" />
+            </div>
+            <input class="case-color-hex" :value="caseColor" @change="caseColor = $event.target.value; onCaseColorChange()" />
+          </div>
+          <div class="case-row">
+            <span class="case-label">材质</span>
+            <div class="case-mat-switch">
+              <button class="case-mat-btn" :class="{ active: caseMaterial === 'plastic' }" @click="caseMaterial='plastic'; onCaseMaterialChange()">塑料</button>
+              <button class="case-mat-btn" :class="{ active: caseMaterial === 'metal' }" @click="caseMaterial='metal'; onCaseMaterialChange()">金属</button>
+            </div>
+          </div>
+        </div>
+      </div><!-- /left-panel -->
+
+      <!-- 3D 视口 -->
+      <div class="viewport" ref="viewport">
+        <span class="viewport-hint">左键旋转 · 右键平移 · 滚轮缩放 · 点击键帽编辑</span>
+      </div>
+
+      <!-- 右面板（专业模式属性面板） -->
+      <div class="right-panel" :class="{ collapsed: mode === 'simple' }">
+        <div v-if="!selectedKey" class="prop-empty">
+          <div class="prop-empty-icon">⌨</div>
+          <span>点击 3D 视口中的键帽<br/>即可编辑单颗属性</span>
+        </div>
+
+        <template v-else>
+          <div class="prop-header">
+            <div>
+              <div class="prop-key-name">{{ selectedDef.label || selectedDef.id }}</div>
+              <div class="prop-key-id">{{ selectedDef.id }} · {{ groupNames[selectedDef.group] }}</div>
+            </div>
+            <button class="prop-close" @click="onDeselectKey">✕</button>
+          </div>
+
+          <div class="prop-field">
+            <div class="prop-field-label">键帽底色</div>
+            <div class="prop-color-row">
+              <div class="prop-color-swatch" :style="{ background: propBase }">
+                <input type="color" :value="propBase" @input="propBase = $event.target.value; applyProp()" />
+              </div>
+              <input class="prop-color-hex" :value="propBase" @change="propBase = $event.target.value; applyProp()" />
+            </div>
+          </div>
+
+          <div class="prop-field">
+            <div class="prop-field-label">字符颜色</div>
+            <div class="prop-color-row">
+              <div class="prop-color-swatch" :style="{ background: propLegend }">
+                <input type="color" :value="propLegend" @input="propLegend = $event.target.value; applyProp()" />
+              </div>
+              <input class="prop-color-hex" :value="propLegend" @change="propLegend = $event.target.value; applyProp()" />
+            </div>
+          </div>
+
+          <div class="prop-field">
+            <div class="prop-field-label">图例文字</div>
+            <input class="prop-input" :value="propLabel" @input="propLabel = $event.target.value; applyProp()" placeholder="键帽上的文字" />
+          </div>
+
+          <div class="prop-field">
+            <div class="prop-field-label">字体</div>
+            <select class="prop-font-select" v-model="propFont" @change="applyProp()">
+              <option value="">默认 (Inter)</option>
+              <option value="'Courier New',monospace">等宽 Mono</option>
+              <option value="'Georgia',serif">衬线 Serif</option>
+              <option value="'Comic Sans MS',cursive">手写 Comic</option>
+            </select>
+          </div>
+        </template>
+      </div>
+
+    </div><!-- /editor-body -->
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script type="module" src="./editor.js"></script>
+</body>
+</html>

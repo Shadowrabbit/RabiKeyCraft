@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/Shadowrabbit/RabiKeyCraft#readme",
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "three": "^0.183.2"
   }
 }
