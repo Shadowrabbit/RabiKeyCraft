@@ -732,7 +732,8 @@ export class KeycapRenderer {
         ctx.lineJoin = 'round';
         ctx.strokeText(text, cw / 2, ch / 2);
       }
-      ctx.fillStyle = opts.legendColor || '#ffffff';
+      var lc = this._autoLegendColor(cap.bodyMat.color);
+      ctx.fillStyle = lc;
       ctx.fillText(text, cw / 2, ch / 2);
     }
 
@@ -782,6 +783,15 @@ export class KeycapRenderer {
   clearImageOverlay() {
     this._layersData = null;
     this._mode = 'pro';
+  }
+
+  /** 根据 THREE.Color 亮度自动返回对比文字色 */
+  _autoLegendColor(threeColor) {
+    var r = threeColor.r * 255;
+    var g = threeColor.g * 255;
+    var b = threeColor.b * 255;
+    var lum = (r * 299 + g * 587 + b * 114) / 1000;
+    return lum > 140 ? '#333333' : '#ffffff';
   }
 
   // ==================== 选中 / 高亮（不移动相机） ====================

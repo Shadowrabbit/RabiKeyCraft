@@ -1,17 +1,39 @@
 // ******************************************************************
 // /\ /| @file editor.js
-// \ V/ @brief KeyCraft 键帽编辑器 Vue 应用（多图层 + 自定义配色）
+// \ V/ @brief KeyCraft 键帽编辑器 Vue 应用（底色 + 图案图层统一架构）
 // | "") @author Catarina·RabbitNya, yingtu0401@gmail.com
 // / |
-// / \\ @Modified 2026-03-09 03:30:00
+// / \\ @Modified 2026-03-08 12:00:00
 // *(__\_\ @Copyright Copyright (c) 2026, Shadowrabbit
 // ******************************************************************
 
 import { layouts, groupNames } from './lib/layout-data.js';
-import { colorSchemes } from './lib/color-schemes.js';
 import { KeycapRenderer } from './lib/keycap-renderer.js';
 
 var _layerUid = 0;
+
+// 默认分区底色（文字色由底色自动推导）
+var DEFAULT_ZONES = {
+  alpha:  { base: '#3c3c3c' },
+  num:    { base: '#3c3c3c' },
+  mod:    { base: '#5a5a5a' },
+  frow:   { base: '#5a5a5a' },
+  nav:    { base: '#5a5a5a' },
+  arrow:  { base: '#5a5a5a' },
+  numpad: { base: '#3c3c3c' },
+  space:  { base: '#5a5a5a' }
+};
+
+/** 根据底色亮度自动计算文字色（深底→白字，浅底→黑字） */
+function autoLegend(hex) {
+  var c = hex.replace('#', '');
+  if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+  var r = parseInt(c.substring(0,2), 16);
+  var g = parseInt(c.substring(2,4), 16);
+  var b = parseInt(c.substring(4,6), 16);
+  var lum = (r * 299 + g * 587 + b * 114) / 1000;
+  return lum > 140 ? '#333333' : '#ffffff';
+}
 
 const { createApp } = Vue;
 
@@ -20,52 +42,38 @@ createApp({
     return {
       layouts,
       groupNames,
-      colorSchemes,
       currentLayout: 'tkl',
-      currentScheme: 'classic-dark',
-      mode: 'pro',
       keycapProfile: 'cherry',
       keycapMaterial: 'pbt',
       caseColor: '#2a2a2e',
       caseMaterial: 'plastic',
 
-      // 自定义配色
-      useCustomScheme: false,
-      customScheme: {
-        base: '#3c3c3c',
-        legend: '#ffffff',
-        modBase: '#5a5a5a',
-        modLegend: '#ffffff',
-        accentBase: '#00d4ff',
-        accentLegend: '#000000'
-      },
+      // 底色图层 — 分区颜色
+      zoneColors: JSON.parse(JSON.stringify(DEFAULT_ZONES)),
+      showZoneOverride: false, // 分区覆盖折叠态
+      clipboard: null, // 颜色剪贴板 { base }
 
-      // 选中键帽（专业模式）
+      // 图案图层
+      layers: [],
+      activeLayerIdx: -1,
+      showLegend: true,
+      dragOver: false,
+
+      // 选中键帽（只读信息）
       selectedKey: null,
       selectedDef: null,
       propBase: '#3c3c3c',
       propLegend: '#ffffff',
-      propLabel: '',
-      propFont: '',
 
-      // 简易模式 - 多图层
-      layers: [],
-      activeLayerIdx: -1,
-      simpleShowLegend: true,
-      simpleLegendColor: '#ffffff',
-      dragOver: false,
-
-      // 单键覆盖（专业模式）
+      // 单键覆盖（预留，当前不可编辑）
       overrides: {}
     };
   },
 
   computed: {
-    /** 当前活跃图层对象 */
     activeLayer() {
       return this.layers[this.activeLayerIdx] ?? null;
     },
-    /** 是否有任何图层包含图片 */
     hasAnyImage() {
       return this.layers.some(l => l.image);
     }
@@ -86,67 +94,81 @@ createApp({
   },
 
   methods: {
-    // ==================== 布局 / 配色 ====================
+    // ==================== 布局加载 ====================
 
     _loadCurrentLayout() {
       var layout = this.layouts[this.currentLayout];
       if (!layout) return;
       this._renderer.loadLayout(layout);
-      this._applyCurrentScheme();
+      this._applyAll();
     },
 
-    _applyCurrentScheme() {
-      if (this.useCustomScheme) {
-        this._applyCustomScheme();
-        return;
-      }
-      var scheme = this.colorSchemes.find(s => s.id === this.currentScheme);
-      if (!scheme) return;
-      this._renderer.setColorScheme(scheme);
-
-      for (var [keyId, ov] of Object.entries(this.overrides)) {
-        this._renderer.updateKeycap(keyId, ov);
-      }
-
-      if (this.mode === 'simple') this._refreshLayers();
-    },
-
-    /** 构造并应用自定义配色 */
-    _applyCustomScheme() {
-      var cs = this.customScheme;
+    /** 总入口：先应用底色，再叠加图案图层 */
+    _applyAll() {
+      var zc = this.zoneColors;
+      var first = zc.alpha || { base: '#3c3c3c' };
       var scheme = {
-        id: 'custom',
-        name: '自定义',
-        base: cs.base,
-        legend: cs.legend,
-        accent: cs.modBase,
-        accentLegend: cs.modLegend,
-        groups: {
-          alpha: { base: cs.base, legend: cs.legend },
-          mod:   { base: cs.modBase, legend: cs.modLegend },
-          frow:  { base: cs.modBase, legend: cs.modLegend },
-          nav:   { base: cs.modBase, legend: cs.modLegend },
-          space: { base: cs.accentBase, legend: cs.accentLegend },
-          num:   { base: cs.base, legend: cs.legend }
-        }
+        id: 'user',
+        name: '用户自定义',
+        base: first.base,
+        legend: autoLegend(first.base),
+        groups: {}
       };
+      for (var key in zc) {
+        var base = zc[key].base || '#3c3c3c';
+        scheme.groups[key] = { base: base, legend: autoLegend(base) };
+      }
       this._renderer.setColorScheme(scheme);
+
+      // 应用单键覆盖
       for (var [keyId, ov] of Object.entries(this.overrides)) {
         this._renderer.updateKeycap(keyId, ov);
       }
-      if (this.mode === 'simple') this._refreshLayers();
+
+      // 叠加图案图层
+      this._refreshLayers();
     },
 
-    toggleCustomScheme() {
-      this._applyCurrentScheme();
+    // ==================== 底色设计 ====================
+
+    /** 全键底色：设置所有分区为同一底色 */
+    applyGlobalBase(color) {
+      for (var key in this.zoneColors) {
+        this.zoneColors[key].base = color;
+      }
+      this._applyAll();
       this._saveDraft();
     },
 
-    onCustomColorChange() {
-      if (!this.useCustomScheme) return;
-      this._applyCustomScheme();
+    setZoneBase(gkey, color) {
+      if (!this.zoneColors[gkey]) this.zoneColors[gkey] = { base: '#3c3c3c' };
+      this.zoneColors[gkey].base = color;
+      this._applyAll();
       this._saveDraft();
     },
+
+    copyZoneColor(gkey) {
+      var zc = this.zoneColors[gkey];
+      if (!zc) return;
+      this.clipboard = { base: zc.base };
+    },
+
+    pasteZoneColor(gkey) {
+      if (!this.clipboard) return;
+      if (!this.zoneColors[gkey]) this.zoneColors[gkey] = { base: '#3c3c3c' };
+      this.zoneColors[gkey].base = this.clipboard.base;
+      this._applyAll();
+      this._saveDraft();
+    },
+
+    resetZoneColors() {
+      this.zoneColors = JSON.parse(JSON.stringify(DEFAULT_ZONES));
+      this.overrides = {};
+      this._applyAll();
+      this._saveDraft();
+    },
+
+    // ==================== 布局 / 轮廓 / 材质 ====================
 
     onLayoutChange() {
       this.selectedKey = null;
@@ -154,31 +176,6 @@ createApp({
       this.overrides = {};
       this._loadCurrentLayout();
     },
-
-    onSchemeChange() {
-      this.useCustomScheme = false;
-      this._applyCurrentScheme();
-    },
-
-    applyScheme(id) {
-      this.currentScheme = id;
-      this.useCustomScheme = false;
-      this._applyCurrentScheme();
-    },
-
-    getGroupColor(groupKey) {
-      if (this.useCustomScheme) {
-        var cs = this.customScheme;
-        if (groupKey === 'alpha' || groupKey === 'num') return cs.base;
-        if (groupKey === 'space') return cs.accentBase;
-        return cs.modBase;
-      }
-      var scheme = this.colorSchemes.find(s => s.id === this.currentScheme);
-      if (!scheme) return '#888';
-      return scheme.groups?.[groupKey]?.base ?? scheme.base;
-    },
-
-    // ==================== 轮廓切换 ====================
 
     onProfileChange() {
       this._renderer.setProfile(this.keycapProfile);
@@ -198,21 +195,7 @@ createApp({
       this._renderer.setCaseMaterial(this.caseMaterial);
     },
 
-    // ==================== 模式切换 ====================
-
-    setMode(m) {
-      this.mode = m;
-      if (m === 'pro') {
-        this._renderer.clearImageOverlay();
-        this._applyCurrentScheme();
-      } else {
-        // 进入简易模式，自动创建第一个图层
-        if (this.layers.length === 0) this.addLayer();
-        this._refreshLayers();
-      }
-    },
-
-    // ==================== 键帽选中（专业模式） ====================
+    // ==================== 键帽选中（只读信息） ====================
 
     _onKeySelected(keyId) {
       if (!keyId) {
@@ -228,30 +211,13 @@ createApp({
       this.selectedDef = def;
 
       var ov = this.overrides[keyId];
-      var scheme = this.colorSchemes.find(s => s.id === this.currentScheme);
-      var groupOv = scheme?.groups?.[def.group];
-
-      this.propBase = ov?.base ?? groupOv?.base ?? scheme?.base ?? '#3c3c3c';
-      this.propLegend = ov?.legend ?? groupOv?.legend ?? scheme?.legend ?? '#ffffff';
-      this.propLabel = ov?.label ?? def.label;
-      this.propFont = ov?.font ?? '';
+      var zc = this.zoneColors[def.group] || { base: '#3c3c3c' };
+      this.propBase = ov?.base ?? zc.base;
+      this.propLegend = autoLegend(this.propBase);
     },
 
     onDeselectKey() {
       this._renderer.deselectKey();
-    },
-
-    applyProp() {
-      if (!this.selectedKey) return;
-      var ov = {
-        base: this.propBase,
-        legend: this.propLegend,
-        label: this.propLabel,
-        legendFont: this.propFont
-      };
-      this.overrides[this.selectedKey] = ov;
-      this._renderer.updateKeycap(this.selectedKey, ov);
-      this._saveDraft();
     },
 
     // ==================== 图层管理 ====================
@@ -276,7 +242,6 @@ createApp({
       var layer = this.layers[idx];
       if (layer?.imageUrl) URL.revokeObjectURL(layer.imageUrl);
       this.layers.splice(idx, 1);
-      // 调整活跃索引
       if (this.activeLayerIdx >= this.layers.length) {
         this.activeLayerIdx = Math.max(0, this.layers.length - 1);
       }
@@ -293,25 +258,22 @@ createApp({
       this._refreshLayers();
     },
 
-    /** 图层排序（dir: -1 上移 / +1 下移） */
     moveLayer(idx, dir) {
       var target = idx + dir;
       if (target < 0 || target >= this.layers.length) return;
       var tmp = this.layers[idx];
       this.layers[idx] = this.layers[target];
       this.layers[target] = tmp;
-      // 跟随活跃索引
       if (this.activeLayerIdx === idx) this.activeLayerIdx = target;
       else if (this.activeLayerIdx === target) this.activeLayerIdx = idx;
       this._refreshLayers();
     },
 
-    // ==================== 图层图片上传 ====================
+    // ==================== 图层图片 ====================
 
     onFileSelect(e) {
       var file = e.target.files?.[0];
       if (file) this._loadLayerImage(file);
-      // 清空 input 以便重复选择同一文件
       e.target.value = '';
     },
 
@@ -347,17 +309,13 @@ createApp({
       this._refreshLayers();
     },
 
-    // ==================== 图层参数更新 ====================
+    // ==================== 图层刷新 ====================
 
     onLayerUpdate() {
       this._refreshLayers();
     },
 
     onToggleLegend() {
-      this._refreshLayers();
-    },
-
-    onLegendColorChange() {
       this._refreshLayers();
     },
 
@@ -370,17 +328,15 @@ createApp({
       this._refreshLayers();
     },
 
-    /** 构建简易模式渲染选项 */
-    _getSimpleOpts() {
+    _getLayerOpts() {
       return {
-        showLegend: this.simpleShowLegend,
-        legendColor: this.simpleLegendColor,
+        showLegend: this.showLegend,
         legendOutline: true,
         bgColor: '#222222'
       };
     },
 
-    /** 将图层数据送入渲染器 */
+    /** 将可见图案图层送入渲染器 */
     _refreshLayers() {
       var layerData = this.layers
         .filter(l => l.visible && l.image)
@@ -393,12 +349,9 @@ createApp({
         }));
 
       if (layerData.length > 0) {
-        this._renderer.applyLayers(layerData, this._getSimpleOpts());
+        this._renderer.applyLayers(layerData, this._getLayerOpts());
       } else {
-        // 无可见图片时恢复配色方案（直接调用渲染器避免递归）
         this._renderer.clearImageOverlay();
-        var scheme = this.colorSchemes.find(s => s.id === this.currentScheme);
-        if (scheme) this._renderer.setColorScheme(scheme);
       }
     },
 
@@ -423,13 +376,11 @@ createApp({
       try {
         var draft = {
           layout: this.currentLayout,
-          scheme: this.currentScheme,
           profile: this.keycapProfile,
           material: this.keycapMaterial,
           caseColor: this.caseColor,
           caseMaterial: this.caseMaterial,
-          useCustomScheme: this.useCustomScheme,
-          customScheme: { ...this.customScheme },
+          zoneColors: this.zoneColors,
           overrides: this.overrides
         };
         localStorage.setItem('kc_editor_draft', JSON.stringify(draft));
@@ -444,7 +395,6 @@ createApp({
         if (draft.layout && this.layouts[draft.layout]) {
           this.currentLayout = draft.layout;
         }
-        if (draft.scheme) this.currentScheme = draft.scheme;
         if (draft.profile) {
           this.keycapProfile = draft.profile;
           this._renderer.setProfile(draft.profile);
@@ -461,9 +411,12 @@ createApp({
           this.caseMaterial = draft.caseMaterial;
           this._renderer.setCaseMaterial(draft.caseMaterial);
         }
+        if (draft.zoneColors) {
+          for (var k in draft.zoneColors) {
+            if (this.zoneColors[k]) Object.assign(this.zoneColors[k], draft.zoneColors[k]);
+          }
+        }
         if (draft.overrides) this.overrides = draft.overrides;
-        if (draft.useCustomScheme !== undefined) this.useCustomScheme = draft.useCustomScheme;
-        if (draft.customScheme) Object.assign(this.customScheme, draft.customScheme);
         this._loadCurrentLayout();
       } catch (_) { /* 静默 */ }
     }
