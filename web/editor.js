@@ -1,11 +1,13 @@
-// ******************************************************************
-// /\ /| @file editor.js
-// \ V/ @brief KeyCraft 键帽编辑器 Vue 应用（底色 + 图案图层统一架构）
-// | "") @author Catarina·RabbitNya, yingtu0401@gmail.com
-// / |
-// / \\ @Modified 2026-03-08 22:30:00
-// *(__\_\ @Copyright Copyright (c) 2026, Shadowrabbit
-// ******************************************************************
+/*
+ ******************************************************************
+       /\ /|       @file       editor.js
+       \ V/        @brief      KeyCraft 键帽编辑器 Vue 应用（底色 + 图案图层统一架构）
+       | "")       @author     Catarina·RabbitNya, yingtu0401@gmail.com
+       /  |
+      /  \\        @Modified   2026-03-08 22:30:00
+    *(__\_\        @Copyright  Copyright (c) 2026, Shadowrabbit
+ ******************************************************************
+*/
 
 import { layouts, groupNames } from './lib/layout-data.js';
 import { KeycapRenderer } from './lib/keycap-renderer.js';

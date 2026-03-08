@@ -1,11 +1,13 @@
-// ******************************************************************
-// /\ /| @file kd-legends.js
-// \ V/ @brief 键帽预设文字模板（单键编辑器用）
-// | "") @author Catarina·RabbitNya, yingtu0401@gmail.com
-// / |
-// / \\ @Modified 2026-03-08 14:00:00
-// *(__\_\ @Copyright Copyright (c) 2026, Shadowrabbit
-// ******************************************************************
+/*
+ ******************************************************************
+       /\ /|       @file       kd-legends.js
+       \ V/        @brief      键帽预设文字模板（单键编辑器用）
+       | "")       @author     Catarina·RabbitNya, yingtu0401@gmail.com
+       /  |
+      /  \\        @Modified   2026-03-08 14:00:00
+    *(__\_\        @Copyright  Copyright (c) 2026, Shadowrabbit
+ ******************************************************************
+*/
 
 /* global fabric */
 

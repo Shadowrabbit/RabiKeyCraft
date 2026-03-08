@@ -1,19 +1,22 @@
-// ******************************************************************
-// /\ /| @file key-designer.js
-// \ V/ @brief 单键矢量编辑器（Fabric.js 封装）
-// | "") @author Catarina·RabbitNya, yingtu0401@gmail.com
-// / |
-// / \\ @Modified 2026-03-08 22:30:00
-// *(__\_\ @Copyright Copyright (c) 2026, Shadowrabbit
-// ******************************************************************
+/*
+ ******************************************************************
+       /\ /|       @file       key-designer.js
+       \ V/        @brief      单键矢量编辑器（Fabric.js 封装）
+       | "")       @author     Catarina·RabbitNya, yingtu0401@gmail.com
+       /  |
+      /  \\        @Modified   2026-03-08 23:30:00
+    *(__\_\        @Copyright  Copyright (c) 2026, Shadowrabbit
+ ******************************************************************
+*/
 
 /* global fabric, paper, opentype */
 
 // ==================== 常量 ====================
-var EDIT_RES = 512;
-var SNAP_DIST = 6;
+var EDIT_RES = 256;  // 编辑画布分辨率（每 1u 的像素数，256 已足够精细）
+var SNAP_DIST = 4;
 var SAFE_MARGIN = 0.1;
-var MAX_HISTORY = 50;
+var MAX_HISTORY = 30;
+var HISTORY_DEBOUNCE = 400; // 历史记录去抖动延迟(ms)
 var GRID_CLR = 'rgba(255,255,255,0.06)';
 var GUIDE_CLR = 'rgba(0,212,255,0.3)';
 var SAFE_CLR = 'rgba(255,68,102,0.15)';
@@ -60,9 +63,12 @@ export class KeyDesigner {
     this._paperReady = false;
     this._kbFn = null;
     this._drawing = false;     // 正在绘制形状/线段中
-    this._overlayRaf = 0;      // rAF 防重复
     this._gridCache = null;    // 缓存网格图像
     this._gridCacheZ = 0;      // 缓存时的缩放值
+    this._hTimer = 0;          // 历史去抖定时器
+    this._selTimer = 0;        // 选择事件去抖定时器
+    this._snapCache = null;    // 缓存的对象边界数据
+    this._snapCacheDirty = true;
   }
 
   // ==================== 生命周期 ====================
@@ -84,16 +90,22 @@ export class KeyDesigner {
       backgroundColor: this._baseColor,
       selection: true,
       preserveObjectStacking: true,
-      stopContextMenu: true, fireRightClick: true
+      stopContextMenu: true, fireRightClick: true,
+      renderOnAddRemove: false,    // 手动控制渲染时机
+      enableRetinaScaling: false   // 禁用 retina 倍率，减少像素量
     });
 
-    this._fc.on('after:render', () => this._schedOverlay());
+    this._fc.on('after:render', () => this._overlay());
     this._fc.on('selection:created', () => this._fireSel());
     this._fc.on('selection:updated', () => this._fireSel());
     this._fc.on('selection:cleared', () => this._fireSel());
-    this._fc.on('object:modified', () => this._pushH());
+    this._fc.on('object:modified', () => { this._snapCacheDirty = true; this._pushH(); });
+    this._fc.on('object:added', () => { this._snapCacheDirty = true; });
+    this._fc.on('object:removed', () => { this._snapCacheDirty = true; });
     this._fc.on('object:moving', e => this._onMoving(e));
-    this._fc.on('mouse:up', () => { this._guides = []; this._fc.renderAll(); });
+    this._fc.on('mouse:up', () => {
+      if (this._guides.length) { this._guides = []; this._fc.requestRenderAll(); }
+    });
 
     if (fabricData) {
       if (fabricData._kdLayers) {
@@ -104,10 +116,10 @@ export class KeyDesigner {
       this._fc.loadFromJSON(fabricData, () => {
         this._rebuildRefs();
         this._fc.renderAll();
-        this._pushH();
+        this._pushHNow();
       });
     } else {
-      this._pushH();
+      this._pushHNow();
     }
 
     this._fitZoom();
@@ -119,13 +131,14 @@ export class KeyDesigner {
 
   close() {
     if (this._kbFn) { window.removeEventListener('keydown', this._kbFn); this._kbFn = null; }
-    if (this._overlayRaf) { cancelAnimationFrame(this._overlayRaf); this._overlayRaf = 0; }
+    if (this._hTimer) { clearTimeout(this._hTimer); this._hTimer = 0; }
+    if (this._selTimer) { clearTimeout(this._selTimer); this._selTimer = 0; }
     if (this._fc) { this._fc.dispose(); this._fc = null; }
     this._el.innerHTML = '';
     this._hist = []; this._hIdx = -1;
     this._layers = [this._mkLy('图层 1')]; this._aLy = 0;
     this._penPts = []; this._penPreview = null; this._guides = [];
-    this._gridCache = null; this._drawing = false;
+    this._gridCache = null; this._drawing = false; this._snapCache = null;
   }
 
   save() {
@@ -174,7 +187,7 @@ export class KeyDesigner {
     this._fc.setWidth(this._cw * z);
     this._fc.setHeight(this._ch * z);
     this._invalidateGridCache();
-    this._fc.renderAll();
+    this._fc.requestRenderAll();
   }
 
   getZoom() {
@@ -186,14 +199,6 @@ export class KeyDesigner {
 
   // ==================== 叠加绘制（性能优化） ====================
 
-  _schedOverlay() {
-    if (this._overlayRaf) return;
-    this._overlayRaf = requestAnimationFrame(() => {
-      this._overlayRaf = 0;
-      this._overlay();
-    });
-  }
-
   _invalidateGridCache() { this._gridCache = null; }
 
   _buildGridCache(z) {
@@ -203,24 +208,28 @@ export class KeyDesigner {
     var ctx = c.getContext('2d');
     ctx.setTransform(z, 0, 0, z, 0, 0);
 
-    // 网格
+    // 网格（批量路径，一次 stroke）
     if (this._gridOn) {
       ctx.strokeStyle = GRID_CLR; ctx.lineWidth = 1 / z;
+      ctx.beginPath();
       var gs = this._gridSz;
       for (var gx = gs; gx < this._cw; gx += gs) {
-        ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, this._ch); ctx.stroke();
+        ctx.moveTo(gx, 0); ctx.lineTo(gx, this._ch);
       }
       for (var gy = gs; gy < this._ch; gy += gs) {
-        ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(this._cw, gy); ctx.stroke();
+        ctx.moveTo(0, gy); ctx.lineTo(this._cw, gy);
       }
+      ctx.stroke();
     }
 
     // 中心十字
     ctx.strokeStyle = GUIDE_CLR; ctx.lineWidth = 1 / z;
     ctx.setLineDash([6 / z, 4 / z]);
+    ctx.beginPath();
     var cx = this._cw / 2, cy = this._ch / 2;
-    ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, this._ch); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(this._cw, cy); ctx.stroke();
+    ctx.moveTo(cx, 0); ctx.lineTo(cx, this._ch);
+    ctx.moveTo(0, cy); ctx.lineTo(this._cw, cy);
+    ctx.stroke();
 
     // 安全区
     var m = SAFE_MARGIN * Math.min(this._cw, this._ch);
@@ -308,7 +317,8 @@ export class KeyDesigner {
       var cfg = {
         left: sx, top: sy, width: 0, height: 0,
         fill: '#7c4dff', stroke: '#ffffff', strokeWidth: 2,
-        originX: 'left', originY: 'top', _layerIdx: self._aLy
+        originX: 'left', originY: 'top', _layerIdx: self._aLy,
+        objectCaching: false // 绘制中禁用缓存，完成后恢复
       };
       shape = type === 'rect' ? new fabric.Rect(cfg)
         : new fabric.Ellipse({ ...cfg, rx: 0, ry: 0 });
@@ -321,13 +331,14 @@ export class KeyDesigner {
       if (opt.e.shiftKey) { var s = Math.max(Math.abs(w), Math.abs(h)); w = w < 0 ? -s : s; h = h < 0 ? -s : s; }
       shape.set({ left: w < 0 ? sx + w : sx, top: h < 0 ? sy + h : sy, width: Math.abs(w), height: Math.abs(h) });
       if (type === 'ellipse') shape.set({ rx: Math.abs(w) / 2, ry: Math.abs(h) / 2 });
-      fc.renderAll();
+      fc.renderAll(); // 同步渲染，避免异步延迟导致拖绘卡顿
     };
     this._hnd['mouse:up'] = function () {
       self._drawing = false;
       if (!shape) return;
       if (shape.width < 2 && shape.height < 2) { fc.remove(shape); }
-      else { self._addToLy(shape); fc.setActiveObject(shape); self._pushH(); }
+      else { shape.set('objectCaching', true); self._addToLy(shape); fc.setActiveObject(shape); }
+      fc.renderAll(); self._pushH();
       shape = null;
     };
     for (var e of ['mouse:down', 'mouse:move', 'mouse:up']) fc.on(e, this._hnd[e]);
@@ -340,7 +351,8 @@ export class KeyDesigner {
       self._drawing = true;
       var p = fc.getPointer(opt.e); x1 = p.x; y1 = p.y;
       ln = new fabric.Line([x1, y1, x1, y1], {
-        stroke: '#ffffff', strokeWidth: 2, originX: 'center', originY: 'center', _layerIdx: self._aLy
+        stroke: '#ffffff', strokeWidth: 2, originX: 'center', originY: 'center',
+        _layerIdx: self._aLy, objectCaching: false
       });
       fc.add(ln);
     };
@@ -353,13 +365,15 @@ export class KeyDesigner {
         var d = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
         x2 = x1 + Math.cos(sn) * d; y2 = y1 + Math.sin(sn) * d;
       }
-      ln.set({ x2, y2 }); fc.renderAll();
+      ln.set({ x2, y2 }); fc.renderAll(); // 同步渲染
     };
     this._hnd['mouse:up'] = function () {
       self._drawing = false;
       if (!ln) return;
+      ln.set('objectCaching', true);
       if (Math.sqrt((ln.x2 - ln.x1) ** 2 + (ln.y2 - ln.y1) ** 2) < 3) fc.remove(ln);
-      else { self._addToLy(ln); fc.setActiveObject(ln); self._pushH(); }
+      else { self._addToLy(ln); fc.setActiveObject(ln); }
+      fc.renderAll(); self._pushH();
       ln = null;
     };
     for (var e of ['mouse:down', 'mouse:move', 'mouse:up']) fc.on(e, this._hnd[e]);
@@ -385,7 +399,8 @@ export class KeyDesigner {
       if (pts.length < 2) { self._penPreview = null; return; }
       self._penPreview = new fabric.Path(buildD(false), {
         fill: 'transparent', stroke: '#00d4ff', strokeWidth: 2,
-        selectable: false, evented: false, strokeDashArray: [6, 4]
+        selectable: false, evented: false, strokeDashArray: [6, 4],
+        objectCaching: false
       });
       fc.add(self._penPreview); fc.renderAll();
     }
@@ -398,7 +413,7 @@ export class KeyDesigner {
         stroke: '#ffffff', strokeWidth: 2, _layerIdx: self._aLy
       });
       fc.add(path); self._addToLy(path); fc.setActiveObject(path);
-      self._pushH(); pts.length = 0;
+      fc.renderAll(); self._pushH(); pts.length = 0;
     }
 
     this._hnd['mouse:down'] = function (opt) {
@@ -438,7 +453,7 @@ export class KeyDesigner {
         fill: '#ffffff', _layerIdx: self._aLy
       });
       fc.add(t); self._addToLy(t); fc.setActiveObject(t);
-      t.enterEditing(); t.selectAll(); self._pushH();
+      fc.requestRenderAll(); t.enterEditing(); t.selectAll(); self._pushH();
     };
     fc.on('mouse:down', this._hnd['mouse:down']);
   }
@@ -454,7 +469,7 @@ export class KeyDesigner {
         img.scale(sc);
         img.set({ left: this._cw / 2, top: this._ch / 2, originX: 'center', originY: 'center', _layerIdx: this._aLy });
         this._fc.add(img); this._addToLy(img); this._fc.setActiveObject(img);
-        this._pushH(); URL.revokeObjectURL(url);
+        this._fc.requestRenderAll(); this._pushH(); URL.revokeObjectURL(url);
       });
     };
     inp.click();
@@ -509,14 +524,14 @@ export class KeyDesigner {
 
   setFill(v) {
     var o = this._fc?.getActiveObject(); if (!o) return;
-    o.set('fill', v); this._fc.renderAll(); this._pushH();
+    o.set('fill', v); this._fc.requestRenderAll(); this._pushH();
   }
 
   setStroke(c, w) {
     var o = this._fc?.getActiveObject(); if (!o) return;
     if (c !== undefined) o.set('stroke', c);
     if (w !== undefined) o.set('strokeWidth', w);
-    this._fc.renderAll(); this._pushH();
+    this._fc.requestRenderAll(); this._pushH();
   }
 
   setOpacity(v) {
@@ -524,7 +539,7 @@ export class KeyDesigner {
     o._baseOp = v;
     var ly = this._layers[o._layerIdx ?? 0];
     o.set('opacity', v * (ly?.opacity ?? 1));
-    this._fc.renderAll(); this._pushH();
+    this._fc.requestRenderAll(); this._pushH();
   }
 
   setGradient(type, c1, c2, angle) {
@@ -540,7 +555,7 @@ export class KeyDesigner {
         colorStops: [{ offset: 0, color: c1 || '#7c4dff' }, { offset: 1, color: c2 || '#00d4ff' }]
       }));
     }
-    this._fc.renderAll(); this._pushH();
+    this._fc.requestRenderAll(); this._pushH();
   }
 
   setTransform(p) {
@@ -548,7 +563,7 @@ export class KeyDesigner {
     for (var k of ['left', 'top', 'angle', 'scaleX', 'scaleY']) {
       if (p[k] !== undefined) o.set(k, p[k]);
     }
-    o.setCoords(); this._fc.renderAll(); this._pushH();
+    o.setCoords(); this._fc.requestRenderAll(); this._pushH();
   }
 
   // ==================== 文本属性 ====================
@@ -561,19 +576,19 @@ export class KeyDesigner {
   toggleBold() {
     var o = this._txtObj(); if (!o) return;
     o.set('fontWeight', o.fontWeight === 'bold' ? 'normal' : 'bold');
-    this._fc.renderAll(); this._pushH();
+    this._fc.requestRenderAll(); this._pushH();
   }
 
   toggleItalic() {
     var o = this._txtObj(); if (!o) return;
     o.set('fontStyle', o.fontStyle === 'italic' ? 'normal' : 'italic');
-    this._fc.renderAll(); this._pushH();
+    this._fc.requestRenderAll(); this._pushH();
   }
 
   setStrokeText(c, w) {
     var o = this._txtObj(); if (!o) return;
     o.set({ stroke: c || null, strokeWidth: w || 0 });
-    this._fc.renderAll(); this._pushH();
+    this._fc.requestRenderAll(); this._pushH();
   }
 
   _txtObj() {
@@ -581,7 +596,7 @@ export class KeyDesigner {
     return (o && (o.type === 'i-text' || o.type === 'text')) ? o : null;
   }
 
-  _setTP(prop, val) { var o = this._txtObj(); if (!o) return; o.set(prop, val); this._fc.renderAll(); this._pushH(); }
+  _setTP(prop, val) { var o = this._txtObj(); if (!o) return; o.set(prop, val); this._fc.requestRenderAll(); this._pushH(); }
 
   async textToPath() {
     var o = this._txtObj(); if (!o) return;
@@ -634,7 +649,7 @@ export class KeyDesigner {
     for (var o of ly.objects) this._fc.remove(o);
     this._layers.splice(idx, 1);
     if (this._aLy >= this._layers.length) this._aLy = this._layers.length - 1;
-    this._fc.renderAll(); this._pushH(); this._fireLy();
+    this._fc.requestRenderAll(); this._pushH(); this._fireLy();
   }
 
   setActiveLayer(idx) {
@@ -645,14 +660,14 @@ export class KeyDesigner {
     var ly = this._layers[idx]; if (!ly) return;
     ly.visible = !ly.visible;
     for (var o of ly.objects) o.set('visible', ly.visible);
-    this._fc.renderAll(); this._fireLy();
+    this._fc.requestRenderAll(); this._fireLy();
   }
 
   toggleLayerLock(idx) {
     var ly = this._layers[idx]; if (!ly) return;
     ly.locked = !ly.locked;
     for (var o of ly.objects) { o.set({ selectable: !ly.locked, evented: !ly.locked }); o._locked = ly.locked; }
-    this._fc.renderAll(); this._fireLy();
+    this._fc.requestRenderAll(); this._fireLy();
   }
 
   moveLayer(from, dir) {
@@ -668,14 +683,14 @@ export class KeyDesigner {
     var ly = this._layers[idx]; if (!ly) return;
     ly.opacity = v;
     for (var o of ly.objects) o.set('opacity', (o._baseOp ?? 1) * v);
-    this._fc.renderAll(); this._fireLy();
+    this._fc.requestRenderAll(); this._fireLy();
   }
 
   setLayerBlend(idx, mode) {
     var ly = this._layers[idx]; if (!ly) return;
     ly.blendMode = mode;
     for (var o of ly.objects) o.set('globalCompositeOperation', mode);
-    this._fc.renderAll(); this._fireLy();
+    this._fc.requestRenderAll(); this._fireLy();
   }
 
   getLayers() {
@@ -707,7 +722,7 @@ export class KeyDesigner {
   _reorder() {
     var fc = this._fc, n = 0;
     for (var ly of this._layers) for (var o of ly.objects) fc.moveTo(o, n++);
-    fc.renderAll();
+    fc.requestRenderAll();
   }
 
   _rebuildRefs() {
@@ -731,7 +746,7 @@ export class KeyDesigner {
     var grp = new fabric.Group(objs, { _layerIdx: this._aLy });
     objs.forEach(o => { fc.remove(o); this._rmFromLy(o); });
     fc.add(grp); this._addToLy(grp); fc.setActiveObject(grp);
-    fc.renderAll(); this._pushH();
+    fc.requestRenderAll(); this._pushH();
   }
 
   ungroupSel() {
@@ -741,7 +756,7 @@ export class KeyDesigner {
     act._restoreObjectsState();
     fc.remove(act); this._rmFromLy(act);
     items.forEach(o => { fc.add(o); this._addToLy(o); });
-    fc.renderAll(); this._pushH();
+    fc.requestRenderAll(); this._pushH();
   }
 
   booleanOp(type) {
@@ -776,16 +791,16 @@ export class KeyDesigner {
         fill, stroke: objs[0].stroke, strokeWidth: objs[0].strokeWidth, _layerIdx: this._aLy
       });
       fc.add(np); this._addToLy(np); fc.setActiveObject(np);
-      fc.renderAll(); this._pushH();
+      fc.requestRenderAll(); this._pushH();
     } catch (err) { console.error('booleanOp:', err); paper.project.clear(); }
   }
 
   // ==================== 网格 / 对齐 ====================
 
-  setGridVis(v) { this._gridOn = v; this._invalidateGridCache(); this._fc?.renderAll(); }
+  setGridVis(v) { this._gridOn = v; this._invalidateGridCache(); this._fc?.requestRenderAll(); }
   setSnapGrid(v) { this._snapGrid = v; }
   setSnapObj(v) { this._snapObj = v; }
-  setGridSize(v) { this._gridSz = Math.max(4, v); this._invalidateGridCache(); this._fc?.renderAll(); }
+  setGridSize(v) { this._gridSz = Math.max(4, v); this._invalidateGridCache(); this._fc?.requestRenderAll(); }
 
   _onMoving(opt) {
     var obj = opt.target; this._guides = [];
@@ -794,23 +809,47 @@ export class KeyDesigner {
       obj.set({ left: Math.round(obj.left / g) * g, top: Math.round(obj.top / g) * g });
     }
     if (this._snapObj) {
+      // 缓存其他对象的边界，只在脏标记时重建
+      if (this._snapCacheDirty || !this._snapCache) {
+        this._snapCache = [];
+        this._fc.forEachObject(o => {
+          if (!o.visible || o === this._penPreview) return;
+          this._snapCache.push({ obj: o, edges: this._edges(o) });
+        });
+        this._snapCacheDirty = false;
+      }
+
       var ed = this._edges(obj);
-      this._fc.forEachObject(o => {
-        if (o === obj || !o.visible || o === this._penPreview) return;
-        var te = this._edges(o);
-        for (var ex of [ed.cx, ed.l, ed.r]) for (var tx of [te.cx, te.l, te.r]) {
-          if (Math.abs(ex - tx) < SNAP_DIST) {
-            obj.set('left', obj.left + (tx - ex));
-            this._guides.push({ x1: tx, y1: 0, x2: tx, y2: this._ch });
+      var snapX = false, snapY = false;
+      for (var i = 0; i < this._snapCache.length && !(snapX && snapY); i++) {
+        var sc = this._snapCache[i];
+        if (sc.obj === obj) continue;
+        var te = sc.edges;
+        if (!snapX) {
+          for (var ex of [ed.cx, ed.l, ed.r]) {
+            if (snapX) break;
+            for (var tx of [te.cx, te.l, te.r]) {
+              if (Math.abs(ex - tx) < SNAP_DIST) {
+                obj.set('left', obj.left + (tx - ex));
+                this._guides.push({ x1: tx, y1: 0, x2: tx, y2: this._ch });
+                snapX = true; break;
+              }
+            }
           }
         }
-        for (var ey of [ed.cy, ed.t, ed.b]) for (var ty of [te.cy, te.t, te.b]) {
-          if (Math.abs(ey - ty) < SNAP_DIST) {
-            obj.set('top', obj.top + (ty - ey));
-            this._guides.push({ x1: 0, y1: ty, x2: this._cw, y2: ty });
+        if (!snapY) {
+          for (var ey of [ed.cy, ed.t, ed.b]) {
+            if (snapY) break;
+            for (var ty of [te.cy, te.t, te.b]) {
+              if (Math.abs(ey - ty) < SNAP_DIST) {
+                obj.set('top', obj.top + (ty - ey));
+                this._guides.push({ x1: 0, y1: ty, x2: this._cw, y2: ty });
+                snapY = true; break;
+              }
+            }
           }
         }
-      });
+      }
     }
   }
 
@@ -833,7 +872,7 @@ export class KeyDesigner {
         case 'centerV': o.set('top', this._ch / 2 - o.getScaledHeight() / 2); break;
         case 'bottom': o.set('top', this._ch - o.getScaledHeight()); break;
       }
-      o.setCoords(); fc.renderAll(); this._pushH(); return;
+      o.setCoords(); fc.requestRenderAll(); this._pushH(); return;
     }
 
     var rs = objs.map(o => ({ o, b: o.getBoundingRect(true) }));
@@ -853,7 +892,7 @@ export class KeyDesigner {
       }
       r.o.setCoords();
     }
-    fc.renderAll(); this._pushH();
+    fc.requestRenderAll(); this._pushH();
   }
 
   distributeSel(axis) {
@@ -875,13 +914,22 @@ export class KeyDesigner {
       var y = rs[0].b.top;
       for (var rv of rs) { rv.o.set('top', rv.o.top + (y - rv.b.top)); rv.o.setCoords(); y += rv.b.height + spV; }
     }
-    fc.renderAll(); this._pushH();
+    fc.requestRenderAll(); this._pushH();
   }
 
   // ==================== 历史记录 ====================
 
+  // 去抖版本：连续操作只在停顿后记录一次
   _pushH() {
     if (this._hLock || !this._fc) return;
+    if (this._hTimer) clearTimeout(this._hTimer);
+    this._hTimer = setTimeout(() => { this._hTimer = 0; this._pushHNow(); }, HISTORY_DEBOUNCE);
+  }
+
+  // 立即记录（初始化、加载时用）
+  _pushHNow() {
+    if (this._hLock || !this._fc) return;
+    if (this._hTimer) { clearTimeout(this._hTimer); this._hTimer = 0; }
     var j = JSON.stringify(this._fc.toJSON(['_layerIdx', '_baseOp', '_locked']));
     this._hist = this._hist.slice(0, this._hIdx + 1);
     this._hist.push(j);
@@ -921,7 +969,7 @@ export class KeyDesigner {
         c.setCoords();
       } else { this._fc.add(c); this._addToLy(c); }
       this._clip.set({ left: this._clip.left + 20, top: this._clip.top + 20 });
-      this._fc.setActiveObject(c); this._fc.renderAll(); this._pushH();
+      this._fc.setActiveObject(c); this._fc.requestRenderAll(); this._pushH();
     });
   }
 
@@ -933,7 +981,7 @@ export class KeyDesigner {
       act.forEachObject(o => { fc.remove(o); this._rmFromLy(o); });
       fc.discardActiveObject();
     } else { fc.remove(act); this._rmFromLy(act); }
-    fc.renderAll(); this._pushH();
+    fc.requestRenderAll(); this._pushH();
   }
 
   // ==================== 键盘快捷键 ====================
@@ -952,7 +1000,7 @@ export class KeyDesigner {
       if (k === 'escape') {
         e.preventDefault();
         if (this._penPts.length) { this._clearTool(); this._initPen(); }
-        else { this._fc?.discardActiveObject(); this._fc?.renderAll(); }
+        else { this._fc?.discardActiveObject(); this._fc?.requestRenderAll(); }
         return;
       }
     }
@@ -977,10 +1025,16 @@ export class KeyDesigner {
     var objs = fc.getObjects().filter(o => o.selectable);
     if (!objs.length) return;
     var sel = new fabric.ActiveSelection(objs, { canvas: fc });
-    fc.setActiveObject(sel); fc.renderAll();
+    fc.setActiveObject(sel); fc.requestRenderAll();
   }
 
   // ==================== 事件触发 ====================
 
-  _fireSel() { this._cb.onSelectionChange?.(this.getSelInfo()); }
+  _fireSel() {
+    if (this._selTimer) return;
+    this._selTimer = setTimeout(() => {
+      this._selTimer = 0;
+      this._cb.onSelectionChange?.(this.getSelInfo());
+    }, 16); // ~1帧延迟，合并连续选择事件
+  }
 }

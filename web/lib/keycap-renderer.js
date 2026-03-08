@@ -1,11 +1,13 @@
-// ******************************************************************
-// /\ /| @file keycap-renderer.js
-// \ V/ @brief Three.js 键帽 3D 渲染引擎（真实轮廓 / 高级材质 / 键盘外壳）
-// | "") @author Catarina·RabbitNya, yingtu0401@gmail.com
-// / |
-// / \\ @Modified 2026-03-09 00:30:00
-// *(__\_\ @Copyright Copyright (c) 2026, Shadowrabbit
-// ******************************************************************
+/*
+ ******************************************************************
+       /\ /|       @file       keycap-renderer.js
+       \ V/        @brief      Three.js 键帽 3D 渲染引擎（真实轮廓 / 高级材质 / 键盘外壳）
+       | "")       @author     Catarina·RabbitNya, yingtu0401@gmail.com
+       /  |
+      /  \\        @Modified   2026-03-09 00:30:00
+    *(__\_\        @Copyright  Copyright (c) 2026, Shadowrabbit
+ ******************************************************************
+*/
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
